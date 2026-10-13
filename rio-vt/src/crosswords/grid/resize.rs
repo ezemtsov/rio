@@ -77,19 +77,27 @@ impl Grid<Square> {
     ///
     /// Rio takes the same approach.
     fn shrink_lines(&mut self, target: usize) {
-        // Scroll up to keep content inside the window.
-        let required_scrolling =
-            (self.cursor.pos.row.0 as usize + 1).saturating_sub(target);
+        // Scroll up to keep content inside the window: the cursor, and the rows
+        // below it unless they are all blank (a shell's idle tail). A program
+        // that parks its cursor above a status line redraws the last screenful
+        // after a resize assuming every row that left the screen is in history.
+        let below = self.cursor.pos.row.0 as usize + 1;
+        let keep = if (below..self.lines).any(|l| !self.raw[Line(l as i32)].is_clear()) {
+            self.lines
+        } else {
+            below
+        };
+        let required_scrolling = keep.saturating_sub(target);
         if required_scrolling > 0 {
             self.scroll_up(&(Line(0)..Line(self.lines as i32)), required_scrolling);
-
-            // Clamp cursors to the new viewport size.
-            self.cursor.pos.row = min(self.cursor.pos.row, Line(target as i32 - 1));
         }
 
-        // Clamp saved cursor, since only primary cursor is scrolled into viewport.
+        // Cursors follow their rows and stop at the nearest edge when theirs scrolls off.
+        let bottom = Line(target as i32 - 1);
+        self.cursor.pos.row =
+            (self.cursor.pos.row - required_scrolling).clamp(Line(0), bottom);
         self.saved_cursor.pos.row =
-            min(self.saved_cursor.pos.row, Line(target as i32 - 1));
+            (self.saved_cursor.pos.row - required_scrolling).clamp(Line(0), bottom);
 
         self.raw.rotate((self.lines - target) as isize);
         self.raw.shrink_visible_lines(target);
