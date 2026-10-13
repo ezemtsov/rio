@@ -612,3 +612,34 @@ fn resolver_fast_path_matches_slow_path() {
     grid.resolve_row_styles(&plain, &mut fast);
     assert_eq!(fast, vec![Style::default(); 3]);
 }
+
+#[test]
+fn shrink_lines_keeps_content_below_cursor() {
+    // Cursor on row 2 of 5 with rows 3-4 holding text: every row that leaves
+    // the screen goes to history, so a redraw of the last screenful lines up.
+    let mut grid = Grid::<Square>::new(5, 1, 10);
+    for l in 0..5 {
+        grid[Line(l)][Column(0)] = cell(char::from(b'a' + l as u8));
+    }
+    grid.cursor.pos.row = Line(2);
+
+    grid.resize(true, 3, 1);
+
+    assert_eq!(grid.history_size(), 2);
+    assert_eq!(grid[Line(-2)][Column(0)], cell('a'));
+    assert_eq!(grid[Line(0)][Column(0)], cell('c'));
+    assert_eq!(grid[Line(2)][Column(0)], cell('e'));
+    assert_eq!(grid.cursor.pos.row, Line(0));
+}
+
+#[test]
+fn shrink_lines_cuts_blank_rows_below_cursor() {
+    // Nothing below the prompt: the blank rows are cut and the prompt stays.
+    let mut grid = Grid::<Square>::new(5, 1, 10);
+    grid[Line(0)][Column(0)] = cell('a');
+
+    grid.resize(true, 3, 1);
+
+    assert_eq!(grid.history_size(), 0);
+    assert_eq!(grid[Line(0)][Column(0)], cell('a'));
+}
