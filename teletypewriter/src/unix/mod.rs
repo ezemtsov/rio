@@ -563,6 +563,7 @@ pub fn create_pty_with_spawn(
     // closes them, including command and signal registration failures.
     let file = unsafe { File::from_raw_fd(main) };
     let owned_child = unsafe { OwnedFd::from_raw_fd(child) };
+    unsafe { set_cloexec(main) };
 
     let user = match ShellUser::from_env() {
         Ok(data) => data,
@@ -678,6 +679,10 @@ pub fn create_pty_with_spawn(
             // No longer need child/main fds.
             libc::close(child);
             libc::close(main);
+
+            // Whatever else the embedder left open stays with it.
+            #[cfg(target_os = "linux")]
+            libc::close_range(3, libc::c_uint::MAX, libc::CLOSE_RANGE_CLOEXEC as libc::c_int);
 
             libc::signal(libc::SIGCHLD, libc::SIG_DFL);
             libc::signal(libc::SIGHUP, libc::SIG_DFL);
@@ -817,6 +822,7 @@ pub fn create_pty_with_fork(
             let child = Child::new(main, id, ptsname, None);
 
             unsafe {
+                set_cloexec(main);
                 set_nonblocking(main);
             }
 
@@ -858,6 +864,14 @@ unsafe fn set_nonblocking(fd: libc::c_int) {
     use libc::{fcntl, F_GETFL, F_SETFL, O_NONBLOCK};
 
     let res = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+    assert_eq!(res, 0);
+}
+
+// openpty leaves close-on-exec off, every later child would inherit the master.
+unsafe fn set_cloexec(fd: libc::c_int) {
+    use libc::{fcntl, FD_CLOEXEC, F_GETFD, F_SETFD};
+
+    let res = fcntl(fd, F_SETFD, fcntl(fd, F_GETFD, 0) | FD_CLOEXEC);
     assert_eq!(res, 0);
 }
 
